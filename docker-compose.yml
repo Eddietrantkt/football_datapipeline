@@ -1,0 +1,226 @@
+x-superset-user: &superset-user root
+x-superset-volumes: &superset-volumes
+  # /app/pythonpath_docker will be appended to the PYTHONPATH in the final container
+  - ./docker:/app/docker
+  - ./docker/superset_config.py:/app/pythonpath/superset_config.py
+
+services:
+  de_psql:
+    image: postgres:15
+    container_name: de_psql
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=1234
+      - POSTGRES_DB=airflow
+    volumes:
+      - ./postgresql:/var/lib/postgresql/data
+      - ./postgresql_init/superset_init.sql:/docker-entrypoint-initdb.d/superset_init.sql
+    networks:
+      de_network:
+        aliases:
+          - db
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "admin", "-d", "airflow"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minio
+      - MINIO_ROOT_PASSWORD=minio123
+    volumes:
+      - ./minio:/data
+    networks:
+      - de_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      retries: 5
+
+  mc:
+    image: minio/mc:latest
+    container_name: mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        until (mc alias set minio http://minio:9000 minio minio123);
+        do echo '...waiting for minio...' && sleep 1;
+        done;
+        mc mb minio/football || true;
+        mc anonymous set public minio/football;
+        exit 0;
+      "
+    networks:
+      - de_network
+
+  airflow-init:
+    image: apache/airflow:2.9.3
+    container_name: airflow-init
+    entrypoint: >
+      bash -c "
+        pip install -r /opt/airflow/requirements.txt &&
+        export PGPASSWORD=1234 &&
+        until psql -h de_psql -U admin -d airflow -c 'SELECT 1'; do
+          echo '...waiting for postgres...' && sleep 1;
+        done &&
+        airflow db migrate &&
+        airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.org --password admin123 || true
+      "
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://admin:1234@de_psql:5432/airflow
+      - AIRFLOW__WEBSERVER__SECRET_KEY=my_secret_key_123
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./get_data:/opt/airflow/get_data
+      - ./assets:/opt/airflow/assets
+      - ./requirements.txt:/opt/airflow/requirements.txt
+    depends_on:
+      de_psql:
+        condition: service_healthy
+    networks:
+      - de_network
+
+  x-airflow-common: &airflow-common
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: apache/airflow:2.9.3   # image custom
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://admin:1234@de_psql:5432/airflow
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minio
+      - MINIO_SECRET_KEY=minio123
+      - POSTGRES_HOST=de_psql
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=football_db
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=1234
+      - FOOTBALLDATA_API_KEY=0eef5feefbc247dab7ccf097bda09c3c
+      - PYTHONWARNINGS=ignore::SyntaxWarning
+      - AIRFLOW__WEBSERVER__SECRET_KEY=my_secret_key_123
+      - AIRFLOW__SCHEDULER__MAX_DAGS_PER_SCHEDULER=1
+      - AIRFLOW__SCHEDULER__SCHEDULING_CONCURRENCY=1
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./get_data:/opt/airflow/get_data
+      - ./assets:/opt/airflow/assets
+    networks:
+      - de_network
+
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      de_psql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:8080/health" ]
+      interval: 10s
+      retries: 5
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      de_psql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  superset:
+    env_file:
+      - path: docker/.env # default
+        required: true
+
+    image: apache/superset:3.0.0-py310
+    container_name: superset_app
+    command: [ "/app/docker/docker-bootstrap.sh", "app" ]
+    restart: unless-stopped
+    ports:
+      - 8088:8088
+    user: *superset-user
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    volumes: *superset-volumes
+    environment:
+      SUPERSET_LOAD_EXAMPLES: "no"
+      SUPERSET__SQLALCHEMY_EXAMPLES_URI: "duckdb:////app/data/examples.duckdb"
+      DATABASE_DB: "superset_db"
+    networks:
+      - de_network
+
+
+
+  superset-init:
+    image: apache/superset:3.0.0-py310
+    container_name: superset_init
+    command: [ "/app/docker/docker-init.sh" ]
+    env_file:
+      - path: docker/.env # default
+        required: true
+    depends_on:
+      de_psql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    user: *superset-user
+    volumes: *superset-volumes
+    environment:
+      SUPERSET_LOAD_EXAMPLES: "no"
+      SUPERSET__SQLALCHEMY_EXAMPLES_URI: "duckdb:////app/data/examples.duckdb"
+      DATABASE_DB: "superset_db"
+
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8088/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - de_network
+
+
+
+  redis:
+    image: redis:7
+    container_name: superset_cache
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis:/data
+    networks:
+      - de_network
+networks:
+  de_network:
+    driver: bridge
+    name: de_network
+volumes:
+  redis:
+    external: false
+
+
