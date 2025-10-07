@@ -30,11 +30,14 @@ Football_data/
 
 Data is from [football-data.org](https://www.football-data.org/)
 
-![ETL Overview](https://github.com/user-attachments/assets/38bb8a03-382f-44d9-b8f1-04c5b5c89a2f)
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/38bb8a03-382f-44d9-b8f1-04c5b5c89a2f" width="700" />
+</p>
 
-We only focus on the Premier League matches:
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/cc9a1242-7b8b-4371-892b-914fa18e5d18" width="250" />
+</p>
 
-![Premier League Logo](https://github.com/user-attachments/assets/cc9a1242-7b8b-4371-892b-914fa18e5d18)
 
 
 🚀 How It Works
