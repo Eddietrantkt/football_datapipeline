@@ -28,11 +28,14 @@ Football_data/
 ├── requirements.txt
 └── README.md
 
-Data is from https://www.football-data.org/
-<img width="1903" height="902" alt="image" src="https://github.com/user-attachments/assets/38bb8a03-382f-44d9-b8f1-04c5b5c89a2f" />
+Data is from [football-data.org](https://www.football-data.org/)
 
-and we only focus on the Premier league matches
-<img width="320" height="320" alt="image" src="https://github.com/user-attachments/assets/cc9a1242-7b8b-4371-892b-914fa18e5d18" />
+![ETL Overview](https://github.com/user-attachments/assets/38bb8a03-382f-44d9-b8f1-04c5b5c89a2f)
+
+We only focus on the Premier League matches:
+
+![Premier League Logo](https://github.com/user-attachments/assets/cc9a1242-7b8b-4371-892b-914fa18e5d18)
+
 
 🚀 How It Works
 1. Bronze Layer
