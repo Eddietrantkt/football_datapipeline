@@ -27,3 +27,32 @@ Football_data/
 ├── docker-compose.yml
 ├── requirements.txt
 └── README.md
+
+🚀 How It Works
+1. Bronze Layer
+
+Fetches football match data via API and stores raw JSON files into MinIO.
+
+2. Silver Layer
+
+Cleans and normalizes JSON into relational tables in PostgreSQL.
+
+Tables: dev.silver_PL_team, dev.silver_PL_matches.
+
+3. Gold Layer
+
+Aggregates match data to compute team statistics and league standings.
+
+Tables: dev.gold_team_stats, dev.gold_league_standings.
+
+🧩 Tech Stack
+
+Python 3.12
+
+Apache Airflow
+
+MinIO
+
+PostgreSQL
+
+Docker Compose
